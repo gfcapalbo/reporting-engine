@@ -38,12 +38,15 @@ class Report(models.Model):
         else:
             try:
                 size = parse_couple(SIZES[_format])
-                size = int(size[0]), int(size[1])
+                # by x4 the size and increasing resolution we prevent
+                # quality loss, therefore allowing for a higher DPI
+                # watermark
+                size = int(size[0]*4), int(size[1]*4)
             except KeyError:
                 logger.warning(
                     'Scaling the watermark failed.'
                     'Could not extract paper dimensions for %s' % (_format))
-        return image.resize(size, resample=Image.LANCZOS)
+        return image.resize(size, resample=Image.ANTIALIAS), size
 
     @api.multi
     def _read_watermark(self, report, ids=None):
@@ -71,8 +74,10 @@ class Report(models.Model):
             if report.paperformat_id.format and \
                     report.paperformat_id.format.lower() in SIZES and \
                     report.pdf_watermark_scale:
-                image = self._scale_watermark(report, image)
-            image.save(pdf_buffer, 'pdf', quality=100)
+                image,size = self._scale_watermark(report, image)
+            # we save at 300
+            image.save(
+                pdf_buffer, 'pdf', subsampling=0, quality=100, resolution=300)
             pdf_watermark = PdfFileReader(pdf_buffer)
         return pdf_watermark
 
