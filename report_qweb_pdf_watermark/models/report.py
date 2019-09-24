@@ -18,7 +18,7 @@ try:
 except ImportError:
     pass
 try:
-    from papersize import parse_couple, SIZES
+    from papersize import parse_couple, SIZES, UNITS
 except ImportError:
     raise
 from openerp import api, models, tools
@@ -29,24 +29,40 @@ class Report(models.Model):
     _inherit = 'report'
 
     @api.multi
-    def _scale_watermark(self, report, image):
+    def _resize_watermark(self, report, image):
         _format = report.paperformat_id.format.lower()
+        # Returns pixels (width, height)
+        im_width, im_height = image.size
         if _format == 'custom':
-            size = \
-                int(report.paperformat_id.page_height), \
-                int(report.paperformat_id.page_width)
+            # todo manage custom landscape case.
+            pg_size = \
+                report.paperformat_id.page_height, \
+                report.paperformat_id.page_width
+            ratio = pg_size[1] / pg_size[0]
         else:
             try:
-                size = parse_couple(SIZES[_format])
-                # by x4 the size and increasing resolution we prevent
-                # quality loss, therefore allowing for a higher DPI
-                # watermark
-                size = int(size[0]*4), int(size[1]*4)
+                # returns point
+                pg_size = parse_couple(SIZES[_format])
+                # We convert to Inch, there are 72 points in an Inch
+                pg_size = [float(x)/float(UNITS["in"]) for x in pg_size]
+                # The ratio of every standard page-type is 0.7070
+                # We resize our image on that ratio with minimal resize
+                # ratio should allways be = 0.7070
+                ratio = pg_size[0] / pg_size[1]
             except KeyError:
                 logger.warning(
                     'Scaling the watermark failed.'
                     'Could not extract paper dimensions for %s' % (_format))
-        return image.resize(size, resample=Image.ANTIALIAS), size
+        # TODO, manage and verify landscape case
+        new_im_size = (int(im_height * ratio), int(im_height))
+        # the image will still bigger but in right proportion with minimal
+        # loss of quality
+        image_resized = image.resize(
+            new_im_size, resample=Image.ANTIALIAS)
+        # we calculate the DPI necessary to make image fit exactly
+        # How many pixels in an Inch
+        dpi = new_im_size[0] / pg_size[0]
+        return image_resized, dpi
 
     @api.multi
     def _read_watermark(self, report, ids=None):
@@ -74,10 +90,10 @@ class Report(models.Model):
             if report.paperformat_id.format and \
                     report.paperformat_id.format.lower() in SIZES and \
                     report.pdf_watermark_scale:
-                image,size = self._scale_watermark(report, image)
+                image, dpi = self._resize_watermark(report, image)
             # we save at 300
             image.save(
-                pdf_buffer, 'pdf', subsampling=0, quality=100, resolution=300)
+                pdf_buffer, 'pdf', subsampling=0, quality=95, resolution=dpi)
             pdf_watermark = PdfFileReader(pdf_buffer)
         return pdf_watermark
 
