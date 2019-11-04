@@ -87,6 +87,7 @@ class Report(models.Model):
             pdf_buffer = StringIO()
             if image.mode != 'RGB':
                 image = image.convert('RGB')
+            dpi = 90
             if report.paperformat_id.format and \
                     report.paperformat_id.format.lower() in SIZES and \
                     report.pdf_watermark_scale:
